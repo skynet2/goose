@@ -12,6 +12,7 @@ type options struct {
 	allowMissing bool
 	applyUpByOne bool
 	noVersioning bool
+	dryRun       bool
 }
 
 type OptionsFunc func(o *options)
@@ -22,6 +23,10 @@ func WithAllowMissing() OptionsFunc {
 
 func WithNoVersioning() OptionsFunc {
 	return func(o *options) { o.noVersioning = true }
+}
+
+func WithDryRun() OptionsFunc {
+	return func(o *options) { o.dryRun = true }
 }
 
 func withApplyUpByOne() OptionsFunc {
@@ -48,7 +53,7 @@ func UpTo(db *sql.DB, dir string, version int64, opts ...OptionsFunc) error {
 			// migration over and over.
 			version = foundMigrations[0].Version
 		}
-		return upToNoVersioning(db, foundMigrations, version)
+		return upToNoVersioning(db, foundMigrations, version, option.dryRun)
 	}
 
 	if _, err := EnsureDBVersion(db); err != nil {
@@ -98,7 +103,7 @@ func UpTo(db *sql.DB, dir string, version int64, opts ...OptionsFunc) error {
 			}
 			return fmt.Errorf("failed to find next migration: %v", err)
 		}
-		if err := next.Up(db); err != nil {
+		if err := next.Up(db, option.dryRun); err != nil {
 			return err
 		}
 		if option.applyUpByOne {
@@ -118,14 +123,14 @@ func UpTo(db *sql.DB, dir string, version int64, opts ...OptionsFunc) error {
 
 // upToNoVersioning applies up migrations up to, and including, the
 // target version.
-func upToNoVersioning(db *sql.DB, migrations Migrations, version int64) error {
+func upToNoVersioning(db *sql.DB, migrations Migrations, version int64, dryRun bool) error {
 	var finalVersion int64
 	for _, current := range migrations {
 		if current.Version > version {
 			break
 		}
 		current.noVersioning = true
-		if err := current.Up(db); err != nil {
+		if err := current.Up(db, dryRun); err != nil {
 			return err
 		}
 		finalVersion = current.Version
@@ -148,7 +153,7 @@ func upWithMissing(
 
 	// Apply all missing migrations first.
 	for _, missing := range missingMigrations {
-		if err := missing.Up(db); err != nil {
+		if err := missing.Up(db, option.dryRun); err != nil {
 			return err
 		}
 		// Apply one migration and return early.
@@ -183,7 +188,7 @@ func upWithMissing(
 		if lookupApplied[found.Version] {
 			continue
 		}
-		if err := found.Up(db); err != nil {
+		if err := found.Up(db, option.dryRun); err != nil {
 			return err
 		}
 		if option.applyUpByOne {
